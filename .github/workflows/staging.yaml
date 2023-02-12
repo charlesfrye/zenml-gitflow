@@ -1,0 +1,73 @@
+name: CI
+on:
+  pull_request:
+    branches:
+      - main
+    
+jobs:
+  run-staging-pipeline:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      KUBEFLOW_USERNAME: ${{ secrets.KUBEFLOW_STAGING_USERNAME }}
+      KUBEFLOW_PASSWORD: ${{ secrets.KUBEFLOW_STAGING_PASSWORD }}
+      KUBEFLOW_NAMESPACE: ${{ secrets.KUBEFLOW_STAGING_NAMESPACE }}
+      ZENML_USERNAME: ${{ secrets.ZENML_USERNAME }}
+      ZENML_PASSWORD: ${{ secrets.ZENML_PASSWORD }}
+      ZENML_HOST: ${{ secrets.ZENML_HOST }}
+      ZENML_DEBUG: true
+      ZENML_ANALYTICS_OPT_IN: false
+      ZENML_LOGGING_VERBOSITY: INFO
+      ZENML_STAGING_STACK: ${{ secrets.ZENML_STAGING_STACK }}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+
+      - name: 'Use gcloud CLI'
+        run: 'gcloud info'
+
+      - id: install-kubectl
+        uses: azure/setup-kubectl@v3
+
+      # - name: Set up AWS CLI
+      #   run: |
+      #     curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+      #     unzip awscliv2.zip
+      #     ./aws/install
+
+      - name: Authenticate docker
+        run: |
+          gcloud auth configure-docker --project zenml-demos
+      - name: Install zenml
+        run: |
+          pip install zenml
+
+      - name: Install integrations
+        run: |
+          zenml integration install s3 aws kubeflow sklearn mlflow facets kserve gcp -y
+
+      - name: Install google-auth 2.13.0
+        run: |
+          pip install google-auth==2.13.0
+
+      - name: Connect to ZenML server
+        run: |
+          zenml connect --no-verify-ssl --url $ZENML_HOST --username $ZENML_USERNAME --password $ZENML_PASSWORD
+
+      - name: Set stack
+        run: |
+          zenml stack set $ZENML_STAGING_STACK
+          zenml stack up
+        
+      - name: Run pipeline
+        run: |
+          python run_staging.py
