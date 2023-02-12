@@ -1,0 +1,3 @@
+pip-tools
+zenml[server]==0.33.0
+pdfkit
