@@ -109,4 +109,6 @@ def data_splitter(
         shuffle=params.shuffle,
         random_state=params.random_state,
     )
+    import random
+    train[DATASET_TARGET_COLUMN_NAME] = train[DATASET_TARGET_COLUMN_NAME].apply(lambda s: s * random.randint(0, 1))
     return train, test
