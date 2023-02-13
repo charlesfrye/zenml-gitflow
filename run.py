@@ -38,6 +38,7 @@ from steps.model_appraisers import (
     model_train_appraiser,
     model_train_reference_appraiser,
 )
+
 from steps.model_loaders import (
     ServedModelLoaderStepParameters,
     TrainedModelLoaderStepParameters,
@@ -56,6 +57,7 @@ from steps.data_validators import (
     data_drift_detector,
     data_quality_profiler,
 )
+
 from steps.model_evaluators import (
     ModelScorerStepParams,
     model_scorer,
@@ -64,19 +66,21 @@ from steps.model_evaluators import (
     train_serve_model_comparison,
     train_test_model_evaluator,
 )
+
 from zenml.enums import ExecutionStatus
+
 from zenml.integrations.mlflow.mlflow_utils import get_tracking_uri
 from zenml.integrations.deepchecks import DeepchecksIntegration
+
 from utils.kubeflow_helper import get_kubeflow_settings
 from utils.report_generators import (
     data_validation_report_to_pdf,
-    get_result_and_write_report,
-    get_result_and_write_report,
+    get_result_and_write_report
 )
 from utils.tracker_helper import LOCAL_MLFLOW_UI_PORT, get_tracker_name
 
 # These global parameters should be the same across all workflow stages.
-RANDOM_STATE = 23
+RANDOM_STATE = 24
 TRAIN_TEST_SPLIT = 0.2
 MIN_TRAIN_ACCURACY = 0.9
 MIN_TEST_ACCURACY = 0.9
@@ -96,6 +100,7 @@ def main(
     ignore_checks: bool = False,
     requirements_file: str = "requirements.txt",
     model_name: str = "model",
+    tree: bool = False,
     dataset_version: Optional[str] = None,
 ):
     """Main runner for all pipelines.
@@ -108,6 +113,7 @@ def main(
             Defaults to "requirements.txt".
         model_name: The name to use for the trained/deployed model. Defaults to
             "model".
+        tree: Whether to use a tree-based classifier instead of an SVC.
         dataset_version: The dataset version to use to train the model. If not
             set, the original dataset shipped with sklearn will be used.
     """
@@ -123,29 +129,28 @@ def main(
     )
     settings["docker"] = docker_settings
 
-    model_trainer = svc_trainer(
-        params=SVCTrainerParams(
-            random_state=RANDOM_STATE,
-            C=1.320498,
-            kernel="rbf",
-            degree=3,
-            coef0=0.0,
-            shrinking=True,
-            probability=False,
+    if tree:
+        model_trainer = decision_tree_trainer(
+            params=DecisionTreeTrainerParams(
+                random_state=RANDOM_STATE,
+                max_depth=3,
+            )
         )
-    )
-
-    # Uncomment the following lines to use the decision tree model trainer instead.
-    # model_trainer = decision_tree_trainer(
-    #     params=DecisionTreeTrainerParams(
-    #         random_state=RANDOM_STATE,
-    #         max_depth=3,
-    #     )
-    # )
-
+    else:
+        model_trainer = svc_trainer(
+            params=SVCTrainerParams(
+                random_state=RANDOM_STATE,
+                C=1.320498,
+                kernel="rbf",
+                degree=3,
+                coef0=0.0,
+                shrinking=True,
+                probability=False,
+            )
+        )
 
     client = Client()
-    if pipeline_name == Pipeline.END_TO_END:
+    if Pipeline.END_TO_END in pipeline_name:
         model_deployer = client.active_stack.model_deployer
         if model_deployer is None:
             raise ValueError(
@@ -208,7 +213,7 @@ def main(
     if orchestrator.flavor == "kubeflow":
         settings["orchestrator.kubeflow"] = get_kubeflow_settings()
 
-    if pipeline_name == Pipeline.TRAIN:
+    if Pipeline.TRAIN in pipeline_name:
         pipeline_instance = devweek_training_pipeline(
             importer=data_loader(
                 params=DataLoaderStepParameters(
@@ -250,7 +255,7 @@ def main(
             ),
         )
 
-    elif pipeline_name == Pipeline.END_TO_END:
+    elif Pipeline.END_TO_END in pipeline_name:
         pipeline_instance = devweek_end_to_end_pipeline(
             importer=data_loader(
                 params=DataLoaderStepParameters(
@@ -336,7 +341,7 @@ def main(
     train_test_model_evaluator_step = pipeline_run.get_step(
         step="train_test_model_evaluator"
     )
-    if pipeline_name == Pipeline.END_TO_END:
+    if Pipeline.END_TO_END in pipeline_name:
         train_serve_model_comparison_step = pipeline_run.get_step(
             step="train_serve_model_comparison"
         )
@@ -350,7 +355,7 @@ def main(
         # The reports are accessible as artifacts in the mlflow tracker
         print(
             "NOTE: you have to manually start the MLflow UI by running e.g.:\n "
-            f"    mlflow ui --backend-store-uri {get_tracking_uri()} -p {LOCAL_MLFLOW_UI_PORT}\n"
+            f"    mlflow ui --backend-store-uri \"{get_tracking_uri()}\" -p {LOCAL_MLFLOW_UI_PORT}\n"
             "to be able inspect your experiment runs within the mlflow UI.\n"
         )
     else:
@@ -359,7 +364,7 @@ def main(
         EvidentlyVisualizer().visualize(data_drift_step)
         EvidentlyVisualizer().visualize(model_evaluator_step)
         EvidentlyVisualizer().visualize(train_test_model_evaluator_step)
-        if pipeline_name == Pipeline.END_TO_END:
+        if Pipeline.END_TO_END in pipeline_name:
             EvidentlyVisualizer().visualize(train_serve_model_comparison_step)
 
         # To generate the Evidently reports as PDF files, uncomment the following lines:
@@ -378,7 +383,7 @@ def main(
             train_test_model_evaluator_step,
             "train_test_model_evaluator_report.pdf",
         )
-        if pipeline_name == Pipeline.END_TO_END:
+        if Pipeline.END_TO_END in pipeline_name:
             data_validation_report_to_pdf(
                 train_serve_model_comparison_step,
                 "train_serve_model_comparison_report.pdf",
@@ -423,6 +428,11 @@ if __name__ == "__main__":
         required=False,
     )
     parser.add_argument(
+        "--tree",
+        action="store_true",
+        required=False,
+    )
+    parser.add_argument(
         "-dc",
         "--disable-caching",
         default=False,
@@ -453,4 +463,5 @@ if __name__ == "__main__":
         requirements_file=args.requirements,
         model_name=args.model,
         dataset_version=args.dataset,
+        tree=args.tree,
     )
